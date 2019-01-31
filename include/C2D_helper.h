@@ -32,6 +32,8 @@ float Draw_GetTextHeight(float size, const char *text);
 bool Draw_Rect(float x, float y, float w, float h, Colour colour);
 bool Draw_Image(C2D_Image image, float x, float y);
 bool Draw_ImageScale(C2D_Image image, float x, float y, float scaleX, float scaleY);
+u8 *Draw_LoadExternalImageFile(const char *path, u32 *data_size);
+void Draw_C3DTexToC2DImage(C3D_Tex *tex, Tex3DS_SubTexture *subtex, void *buf, u32 size, int width, int height, GPU_TEXCOLOR format);
 bool Draw_LoadImageBMPFile(C2D_Image *texture, const char *path);
 bool Draw_LoadImageGIFFile(C2D_Image *texture, const char *path);
 bool Draw_LoadImageJPGFile(C2D_Image *texture, const char *path);

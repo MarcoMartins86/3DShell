@@ -78,7 +78,7 @@ static u64 FSFILE_FRead(void *dst, u32 size, Handle file) {
 	return offset;
 }
 
-static u8 *Draw_LoadExternalImageFile(const char *path, u32 *data_size) {
+u8 *Draw_LoadExternalImageFile(const char *path, u32 *data_size) {
 	Result ret = 0;
 	Handle handle;
 	u8 *buffer = NULL;
@@ -125,7 +125,7 @@ static unsigned int Draw_GetNextPowerOf2(unsigned int v) {
 	return (v >= 64 ? v : 64);
 }
 
-static void Draw_C3DTexToC2DImage(C3D_Tex *tex, Tex3DS_SubTexture *subtex, void *buf, u32 size, int width, int height, GPU_TEXCOLOR format) {
+void Draw_C3DTexToC2DImage(C3D_Tex *tex, Tex3DS_SubTexture *subtex, void *buf, u32 size, int width, int height, GPU_TEXCOLOR format) {
 	u32 w_pow2 = Draw_GetNextPowerOf2((u32)width);
 	u32 h_pow2 = Draw_GetNextPowerOf2((u32)height);
 

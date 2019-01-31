@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <stdlib.h>
 #include <3ds.h>
 
@@ -5,7 +6,7 @@
 #include "common.h"
 #include "config.h"
 #include "fs.h"
-
+#include "libnsgif.h"
 #include "touch.h"
 #include "utils.h"
 
@@ -131,6 +132,220 @@ static void Gallery_HandleNext(bool forward) {
 
 	Gallery_FreeImage(&image);
 	Gallery_LoadTexture(album[selection]);
+}
+
+static void *gif_bitmap_create(int width, int height) {
+	return calloc(width * height, 4);
+}
+
+static void gif_bitmap_set_opaque(void *bitmap, bool opaque) {
+	(void) opaque;  /* unused */
+	assert(bitmap);
+}
+
+static bool gif_bitmap_test_opaque(void *bitmap) {
+	assert(bitmap);
+	return false;
+}
+
+static u8 *gif_bitmap_get_buffer(void *bitmap) {
+	assert(bitmap);
+	return bitmap;
+}
+
+static void gif_bitmap_destroy(void *bitmap) {
+	assert(bitmap);
+	free(bitmap);
+}
+
+static void gif_bitmap_modified(void *bitmap) {
+	assert(bitmap);
+	return;
+}
+bool Gallery_DrawImage(C2D_Image image, float x, float y, float start, float end, float w, float h, float zoom_factor)
+
+bool Gallery_DisplayGif(char *path, bool (*function)(C2D_Image, float, float, float, float, float, float, float)) {
+	bool gif_is_animated = false;
+
+	gif_bitmap_callback_vt gif_bitmap_callbacks = {
+		gif_bitmap_create,
+		gif_bitmap_destroy,
+		gif_bitmap_get_buffer,
+		gif_bitmap_set_opaque,
+		gif_bitmap_test_opaque,
+		gif_bitmap_modified
+	};
+
+	gif_animation gif;
+	u32 size = 0;
+	gif_result code = GIF_OK;
+
+	gif_create(&gif, &gif_bitmap_callbacks);
+	u8 *data = Draw_LoadExternalImageFile(path, &size);
+
+	do {
+		code = gif_initialise(&gif, size, data);
+		if (code != GIF_OK && code != GIF_WORKING) {
+			linearFree(data);
+			return false;
+		}
+	} while (code != GIF_OK);
+
+	if ((gif.width > 4096) || (gif.height > 4096)) {
+		linearFree(data);
+		return false;
+	}
+
+	u64 max_size = (u64)gif.width * (u64)gif.height * 4LLU * (u64)gif.frame_count;
+	if ((gif.width * gif.height * 4 * gif.frame_count) != max_size) {
+		linearFree(data);
+		return false;
+	}
+
+	gif_is_animated = gif.frame_count > 1;
+
+	C2D_Image gif_image[gif.frame_count];
+	u64 frame_times[gif.frame_count];
+	float frame_width[gif.frame_count], frame_height[gif.frame_count];
+	float scale_factor = 0.0f;
+
+	if (gif_is_animated) {
+		for (unsigned int i = 0; i < gif.frame_count; i++) {
+			code = gif_decode_frame(&gif, i);
+			if (code != GIF_OK)
+				break;
+
+			frame_times[i] = (u64)gif.frames[i].frame_delay * 10000000;
+			if (!frame_times[i])
+				frame_times[i] = 100000000;
+
+			u8 *image = (u8 *)gif.frame_image;
+
+			for (u32 row = 0; row < (u32)gif.width; row++) {
+				for (u32 col = 0; col < (u32)gif.height; col++) {
+					u32 z = (row + col * (u32)gif.width) * 4;
+
+					u8 r = *(u8 *)(image + z);
+					u8 g = *(u8 *)(image + z + 1);
+					u8 b = *(u8 *)(image + z + 2);
+					u8 a = *(u8 *)(image + z + 3);
+
+					*(image + z) = a;
+					*(image + z + 1) = b;
+					*(image + z + 2) = g;
+					*(image + z + 3) = r;
+				}
+			}
+
+			C3D_Tex *tex = linearAlloc(sizeof(C3D_Tex));
+			Tex3DS_SubTexture *subtex = linearAlloc(sizeof(Tex3DS_SubTexture));
+			Draw_C3DTexToC2DImage(tex, subtex, image, (u32)(gif.width * gif.height * 4), (u32)gif.width, (u32)gif.height, GPU_RGBA8);
+			gif_image[i].tex = tex;
+			gif_image[i].subtex = subtex;
+
+			if ((float)gif_image[i].subtex->height > 240.0f) {
+				scale_factor = (240.0f / (float)gif_image[i].subtex->height);
+				frame_width[i] = (float)gif_image[i].subtex->width * scale_factor;
+				frame_height[i] = (float)gif_image[i].subtex->height * scale_factor;
+				scale_factor = 0;
+			}
+			else {
+				frame_width[i] = (float)gif_image[i].subtex->width;
+				frame_height[i] = (float)gif_image[i].subtex->height;
+			}
+		}
+	}
+	else {
+		code = gif_decode_frame(&gif, 0);
+		if (code != GIF_OK)
+			return false;
+
+		frame_times[0] = (u64)gif.frames[0].frame_delay * 10000000;
+		if (!frame_times[0])
+			frame_times[0] = 100000000;
+
+		u8 *image = (u8 *)gif.frame_image;
+
+		for (u32 row = 0; row < (u32)gif.width; row++) {
+			for (u32 col = 0; col < (u32)gif.height; col++) {
+				u32 z = (row + col * (u32)gif.width) * 4;
+
+				u8 r = *(u8 *)(image + z);
+				u8 g = *(u8 *)(image + z + 1);
+				u8 b = *(u8 *)(image + z + 2);
+				u8 a = *(u8 *)(image + z + 3);
+
+				*(image + z) = a;
+				*(image + z + 1) = b;
+				*(image + z + 2) = g;
+				*(image + z + 3) = r;
+			}
+		}
+
+		C3D_Tex *tex = linearAlloc(sizeof(C3D_Tex));
+		Tex3DS_SubTexture *subtex = linearAlloc(sizeof(Tex3DS_SubTexture));
+		Draw_C3DTexToC2DImage(tex, subtex, image, (u32)(gif.width * gif.height * 4), (u32)gif.width, (u32)gif.height, GPU_RGBA8);
+		gif_image[0].tex = tex;
+		gif_image[0].subtex = subtex;
+
+		if ((float)gif_image[0].subtex->height > 240.0f) {
+			scale_factor = (240.0f / (float)gif_image[0].subtex->height);
+			frame_width[0] = (float)gif_image[0].subtex->width * scale_factor;
+			frame_height[0] = (float)gif_image[0].subtex->height * scale_factor;
+			scale_factor = 0;
+		}
+		else {
+			frame_width[0] = (float)gif_image[0].subtex->width;
+			frame_height[0] = (float)gif_image[0].subtex->height;
+		}
+	}
+
+	unsigned int count = 0;
+	C2D_TargetClear(RENDER_TOP, C2D_Color32(33, 39, 43, 255));
+	C2D_TargetClear(RENDER_BOTTOM, C2D_Color32(33, 39, 43, 255));
+
+	while(aptMainLoop()) {
+		hidScanInput();
+		u32 kDown = hidKeysDown();
+
+		C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
+		C2D_SceneBegin(RENDER_TOP);
+
+		if (gif_is_animated) {
+			Gallery_DrawImage(gif_image[count], ((400 - (frame_width[count] * 1.0f)) / 2), ((240 - (frame_height[count] * 1.0f)) / 2), 0, 0, 
+				frame_width[count], frame_height[count], 1.0f);
+			svcSleepThread(frame_times[count]);
+
+			count++;
+			if (count == gif.frame_count)
+				count = 0;
+		}
+		else
+			Gallery_DrawImage(gif_image[0], ((400 - (frame_width[0] * 1.0f)) / 2), ((240 - (frame_height[0] * 1.0f)) / 2), 0, 0, 
+				frame_width[0], frame_height[0], 1.0f);
+
+		Draw_EndFrame();
+		
+		if (kDown & KEY_B)
+			break;
+	}
+
+	if (gif_is_animated) {
+		for (unsigned int i = 0; i < gif.frame_count; i++) {
+			C3D_TexDelete(gif_image[i].tex);
+			linearFree((Tex3DS_SubTexture *)&gif_image[i].subtex);
+		}
+	}
+	else {
+		C3D_TexDelete(gif_image[0].tex);
+		linearFree((Tex3DS_SubTexture *)&gif_image[0].subtex);
+	}
+
+	C2D_TargetClear(RENDER_TOP, C2D_Color32(33, 39, 43, 255));
+	C2D_TargetClear(RENDER_BOTTOM, C2D_Color32(33, 39, 43, 255));
+	gif_finalise(&gif);
+	linearFree(data);
+	return true;
 }
 
 void Gallery_DisplayImage(char *path) {
